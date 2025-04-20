@@ -7,3 +7,4 @@ databases/**/migrations/
 experimental/**/*.db
 prisma/**/migrations/
 .vscode/
+service_account.json
