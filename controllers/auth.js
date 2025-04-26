@@ -28,6 +28,7 @@ const checkUsers = async () => {
         tokens: user.tokens,
         provider: user.provider,
         createdAt: user.createdAt.toLocaleString(),
+        profileUrl: user.profileUrl,
       }))
     );
   } catch (err) {
@@ -38,7 +39,11 @@ const checkUsers = async () => {
 const checkCreations = async () => {
   try {
     const allCreations = await prisma.creation.findMany();
-    console.table(allCreations);
+    console.table(
+      allCreations.map((creation) => ({
+        displayURL: creation.displayImage,
+      }))
+    );
   } catch (err) {
     console.error("Error checking creations:", err);
   }
@@ -53,7 +58,7 @@ const checkImages = async () => {
   }
 };
 
-// setInterval(checkImages, 2000);
+// setInterval(checkUsers, 2000);
 
 const signup = async (req, res) => {
   try {

@@ -5,7 +5,8 @@ const os = require("os");
 const { exec } = require("child_process");
 const util = require("util");
 const execPromise = util.promisify(exec);
-
+const sharp = require("sharp");
+const axios = require("axios");
 const storage = new Storage({
   projectId: process.env.GCP_PROJECT_ID,
   keyFilename: process.env.GCP_KEY_FILE_PATH,
@@ -77,6 +78,95 @@ const generateImage = async ({ prompt }) => {
   }
 };
 
+const generateThumbnail = async ({
+  imageUrl,
+  avatarUrl,
+  username = "anantkr",
+}) => {
+  const padding = 20;
+
+  const imageBuffer = await axios
+    .get(imageUrl, { responseType: "arraybuffer" })
+    .then((res) => res.data);
+  const avatarBuffer = await axios
+    .get(avatarUrl, { responseType: "arraybuffer" })
+    .then((res) => res.data);
+
+  const imageMetadata = await sharp(imageBuffer).metadata();
+  const { width, height } = imageMetadata;
+
+  // Frame dimensions with padding
+  const frameWidth = width + padding * 2;
+  const frameHeight = height + padding * 2;
+
+  const blurredBg = await sharp(imageBuffer)
+    .resize(frameWidth, frameHeight)
+    .blur(30)
+    .toBuffer();
+
+  const roundedImage = await sharp(imageBuffer)
+    .composite([
+      {
+        input: Buffer.from(
+          `<svg><rect x="0" y="0" width="${width}" height="${height}" rx="24" ry="24"/></svg>`
+        ),
+        blend: "dest-in",
+      },
+    ])
+    .toBuffer();
+
+  const finalImageBuffer = await sharp(blurredBg)
+    .composite([
+      { input: roundedImage, top: padding, left: padding },
+      {
+        input: await sharp(avatarBuffer)
+          .resize(48, 48)
+          .composite([
+            {
+              input: Buffer.from(`<svg><circle cx="24" cy="24" r="24"/></svg>`),
+              blend: "dest-in",
+            },
+          ])
+          .toBuffer(),
+        top: padding,
+        left: frameWidth - 48 - padding,
+      },
+    ])
+    .extend({
+      top: 4,
+      bottom: 4,
+      left: 4,
+      right: 4,
+      background: { r: 255, g: 255, b: 255, alpha: 0 },
+    })
+    .png()
+    .toBuffer();
+
+  const filename = `framed-${Date.now()}.png`;
+  const bucketName = process.env.GCP_BUCKET_NAME;
+  const filePath = `thumbnails/${filename}`;
+  const tempFilePath = path.join(os.tmpdir(), filename);
+  fs.writeFileSync(tempFilePath, finalImageBuffer);
+
+  try {
+    await storage.bucket(bucketName).upload(tempFilePath, {
+      destination: filePath,
+      metadata: { contentType: "image/png" },
+    });
+
+    const [url] = await storage.bucket(bucketName).file(filePath).getSignedUrl({
+      action: "read",
+      expires: "03-01-2500",
+    });
+
+    fs.unlinkSync(tempFilePath);
+    return url;
+  } catch (error) {
+    if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
+    throw error;
+  }
+};
+
 const images = [
   "https://storage.googleapis.com/zod-bucket/images/1744892833008-2gbuu.png?GoogleAccessId=vertex%40etm-cloud.iam.gserviceaccount.com&Expires=16730303400&Signature=DPRHDOOaA6jTvPuxCPvXA6QTM56UenHjmVxH1wOIDN5JSqaYB%2Fo1BdR289x64y9hYKF4BGR6dddFijQuEiM%2F4alnMBv8mG6W6RKY48rQnHsx1H9jA4moSuNIlegLPTS%2Bk4LZB0Rs%2FM9HNgvp9yB%2F%2FDFVJD%2F3EPxzhjIpSQooZufwtm25tByZMJL316FeUtz922t0SMyy5EzcBuUfeKvbm%2FiBIY9tz2hhG8p61u%2Fboo3IKqcHE0Dm%2FEoRJwUZ2MzcI5ztYNy7peHVNTHthI6pgQnkRRic7orDjzwKym7YdZbn58fWK3Gxl2EikO%2B1N316hHPjCUpwuOO7fgDGH8%2Bpiw%3D%3D",
   "https://storage.googleapis.com/zod-bucket/images/1744945525516-dm19b9.png?GoogleAccessId=vertex%40etm-cloud.iam.gserviceaccount.com&Expires=16730303400&Signature=jr5A93JTknLG4532Y4aymsyd3QZKiZRRcmjePSufWZOUiSwDhWBuZkyVLuCGBphGNUep%2Fx33dL%2Bo5nxgaWdlfH5O3SGWzY%2Bt5dgJyGh5WharV62CW37rS78GM9Us8wbvXSg%2BKchiNbeW292DHU0fEcae1v9%2FXMEhdJhBBtFUvbVTtuQPDqrjbN0KMME%2BcYxYMFJP%2Bj4DXh5qaOpLB0n0Oh9fT81DBDagNs2lNPyCs451loAPuxkAjRRpfe5Q9H5JIBZegmdrgaXpCyJmRZHpe8VH1SA%2FrOHCZEndEHcYWekZaBaB6J37HscHylBbdjYqzd1je%2F5szQ9CKXyYPfvvgQ%3D%3D",
@@ -88,4 +178,5 @@ const images = [
 
 module.exports = {
   generateImage,
+  generateThumbnail,
 };
