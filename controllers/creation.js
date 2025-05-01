@@ -1,20 +1,41 @@
 const { PrismaClient } = require("@prisma/client");
 const { generateImage, generateThumbnail } = require("./image");
+const { createNotification } = require("./notification");
 
 const prisma = new PrismaClient();
 
+const modifyPrompt = (prompt, promptCategory) => {
+  switch (promptCategory) {
+    case "cartoon":
+      return `A cartoonish image ${prompt}`;
+    case "ghibli":
+      return `Ghibli art of ${prompt}`;
+    case "sketch":
+      return `Sketch of ${prompt}`;
+    case "3d-cartoon":
+      return `3d cartoon image of ${prompt}`;
+    default:
+      return prompt;
+  }
+};
+
 const newCreation = async (req, res) => {
   try {
-    const { prompt } = req.body;
+    const { prompt, isPremium, category } = req.body;
+    console.log(prompt, isPremium, category);
     const { userId } = req.user;
     const user = await prisma.user.findUnique({
       where: { id: userId },
     });
+
+    const modifiedPrompt = modifyPrompt(prompt, category);
+
     const image = await prisma.image.create({
       data: {
-        prompt,
+        prompt: prompt,
         userId,
         imageURL: "",
+        isPremium,
       },
     });
     const creation = await prisma.creation.create({
@@ -23,7 +44,7 @@ const newCreation = async (req, res) => {
         imageId: image.id,
       },
     });
-    const imageUrl = await generateImage({ prompt });
+    const imageUrl = await generateImage({ prompt: modifiedPrompt });
     const thumbnailUrl = await generateThumbnail({
       imageUrl,
       avatarUrl: user.profileUrl,
@@ -59,34 +80,48 @@ const getAllCreations = async (req, res) => {
     const creations = await prisma.creation.findMany({
       skip,
       take: limit,
+
       orderBy: {
         likes: {
-          _count: 'desc'
-        }
+          _count: "desc",
+        },
+      },
+      where: {
+        displayImage: {
+          not: null,
+        },
       },
       include: {
-        image: true,
+        image: {
+          select: {
+            prompt: true,
+            isPremium: true,
+            imageURL: false,
+            id: false,
+          },
+        },
         createdBy: {
           select: {
             id: true,
             name: true,
+            profileUrl: true,
           },
         },
         likes: {
           where: {
-            id: userId
+            id: userId,
           },
           select: {
-            id: true
-          }
-        }
+            id: true,
+          },
+        },
       },
     });
 
-    const transformedCreations = creations.map(creation => ({
+    const transformedCreations = creations.map((creation) => ({
       ...creation,
       isLiked: creation.likes.length > 0,
-      likes: undefined
+      likes: undefined,
     }));
 
     const totalCreations = await prisma.creation.count();
@@ -146,19 +181,20 @@ const getUserCreations = async (req, res) => {
   }
 };
 
+
+
 const likeCreation = async (req, res) => {
   try {
     const { creationId } = req.params;
-    const { userId } = req.user;
+    const userId = req.user.userId;
 
     const creation = await prisma.creation.findUnique({
       where: { id: creationId },
+      include: { createdBy: true },
     });
 
     if (!creation) {
-      return res.status(404).json({
-        message: "Creation not found",
-      });
+      return res.status(404).json({ message: "Creation not found" });
     }
 
     const existingLike = await prisma.creation.findFirst({
@@ -166,37 +202,54 @@ const likeCreation = async (req, res) => {
         id: creationId,
         likes: {
           some: {
-            id: userId
-          }
-        }
-      }
+            id: userId,
+          },
+        },
+      },
     });
 
     if (existingLike) {
-      return res.status(400).json({
-        message: "You have already liked this creation",
+      await prisma.creation.update({
+        where: { id: creationId },
+        data: {
+          likes: {
+            disconnect: {
+              id: userId,
+            },
+          },
+        },
       });
+      return res.status(200).json({ message: "Creation unliked successfully" });
     }
 
+    // Like the creation
     await prisma.creation.update({
       where: { id: creationId },
       data: {
         likes: {
           connect: {
-            id: userId
-          }
-        }
-      }
+            id: userId,
+          },
+        },
+      },
     });
 
-    return res.status(200).json({
-      message: "Creation liked successfully",
+    // Create notification for the creation owner
+    const liker = await prisma.user.findUnique({
+      where: { id: userId },
     });
+
+    await createNotification(
+      creation.userId,
+      "New Love on Creation",
+      `${liker.name} Has Loved Your Creation ❤️`,
+      "heart"
+    );
+
+    res.status(200).json({ message: "Creation liked successfully" });
   } catch (error) {
-    console.log(error);
-    return res.status(500).json({
-      message: "Internal server error",
-    });
+    console.error("Like creation error:", error);
+    res.status(500).json({ message: "Error processing like" });
   }
 };
 
@@ -220,10 +273,10 @@ const unlikeCreation = async (req, res) => {
         id: creationId,
         likes: {
           some: {
-            id: userId
-          }
-        }
-      }
+            id: userId,
+          },
+        },
+      },
     });
 
     if (!existingLike) {
@@ -232,16 +285,15 @@ const unlikeCreation = async (req, res) => {
       });
     }
 
-    // Remove the like
     await prisma.creation.update({
       where: { id: creationId },
       data: {
         likes: {
           disconnect: {
-            id: userId
-          }
-        }
-      }
+            id: userId,
+          },
+        },
+      },
     });
 
     return res.status(200).json({

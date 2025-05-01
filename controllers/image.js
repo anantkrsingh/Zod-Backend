@@ -19,10 +19,6 @@ const generateImage = async ({ prompt }) => {
       throw new Error("Prompt is required");
     }
 
-    const randomNumber = Math.floor(Math.random() * 6);
-
-    return images[randomNumber];
-
     const escapedPrompt = prompt.replace(/"/g, '\\"');
 
     const { stdout } = await execPromise(
@@ -32,12 +28,19 @@ const generateImage = async ({ prompt }) => {
       )} "${escapedPrompt}"`
     );
 
-    outputFile = stdout.trim();
+    outputFile = stdout.trim().split("\n").pop().trim();
+
+    if (!outputFile || !fs.existsSync(outputFile)) {
+      throw new Error("Failed to generate image: Output file not found");
+    }
 
     const result = JSON.parse(fs.readFileSync(outputFile, "utf8"));
 
     if (!result.success) {
-      throw new Error("Failed to generate image");
+      if (outputFile && fs.existsSync(outputFile)) {
+        fs.unlinkSync(outputFile);
+      }
+      throw new Error(result.error || "Image generation failed");
     }
 
     const tempFilePath = path.join(
@@ -70,11 +73,14 @@ const generateImage = async ({ prompt }) => {
 
     return url;
   } catch (error) {
-    console.error("Error generating image:", error);
+    console.error("Error in generateImage:", error);
     if (outputFile && fs.existsSync(outputFile)) {
       fs.unlinkSync(outputFile);
     }
-    throw new Error("Failed to generate image");
+    if (error.message.includes("Image generation failed")) {
+      throw error;
+    }
+    throw new Error(`Failed to generate image: ${error.message}`);
   }
 };
 
@@ -95,13 +101,20 @@ const generateThumbnail = async ({
   const imageMetadata = await sharp(imageBuffer).metadata();
   const { width, height } = imageMetadata;
 
-  // Frame dimensions with padding
   const frameWidth = width + padding * 2;
   const frameHeight = height + padding * 2;
 
   const blurredBg = await sharp(imageBuffer)
     .resize(frameWidth, frameHeight)
     .blur(30)
+    .composite([
+      {
+        input: Buffer.from(
+          `<svg><rect x="0" y="0" width="${frameWidth}" height="${frameHeight}" rx="20" ry="20" fill="white"/></svg>`
+        ),
+        blend: "dest-in",
+      },
+    ])
     .toBuffer();
 
   const roundedImage = await sharp(imageBuffer)
@@ -120,7 +133,7 @@ const generateThumbnail = async ({
       { input: roundedImage, top: padding, left: padding },
       {
         input: await sharp(avatarBuffer)
-          .resize(48, 48)
+          .resize(60, 60)
           .composite([
             {
               input: Buffer.from(`<svg><circle cx="24" cy="24" r="24"/></svg>`),

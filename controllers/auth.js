@@ -6,8 +6,10 @@ const { OAuth2Client } = require("google-auth-library");
 const nodemailer = require("nodemailer");
 const ejs = require("ejs");
 const path = require("path");
+const { Storage } = require("@google-cloud/storage");
 
 const authClient = new OAuth2Client(process.env.GOOGLE_WEB_CLIENT_ID);
+const storage = new Storage();
 
 const transporter = nodemailer.createTransport({
   service: "gmail",
@@ -77,9 +79,7 @@ const signup = async (req, res) => {
         name,
       },
     });
-    const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET, {
-      expiresIn: "24h",
-    });
+    const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET);
     res.status(201).json({
       message: "User created successfully",
       token,
@@ -109,9 +109,7 @@ const login = async (req, res) => {
     if (!isValidPassword) {
       return res.status(401).json({ message: "Invalid credentials" });
     }
-    const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET, {
-      expiresIn: "24h",
-    });
+    const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET);
 
     res.json({
       message: "Login successful",
@@ -143,10 +141,7 @@ const googleLogin = async (req, res) => {
     if (existingUser) {
       const token = jwt.sign(
         { userId: existingUser.id },
-        process.env.JWT_SECRET,
-        {
-          expiresIn: "24h",
-        }
+        process.env.JWT_SECRET
       );
       return res.status(200).json({
         message: "Login success ...",
@@ -166,9 +161,7 @@ const googleLogin = async (req, res) => {
         },
       });
 
-      const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET, {
-        expiresIn: "24h",
-      });
+      const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET);
       res.status(201).json({
         message: "Login success",
         token,
@@ -207,8 +200,7 @@ const requestPasswordReset = async (req, res) => {
 
     const token = jwt.sign(
       { userId: user.id, email: user.email },
-      process.env.JWT_SECRET,
-      { expiresIn: "1h" }
+      process.env.JWT_SECRET
     );
 
     const resetLink = `${process.env.FRONTEND_URL}/auth/reset-password/${token}`;
@@ -298,6 +290,249 @@ const showResetPasswordForm = async (req, res) => {
   }
 };
 
+const getProfile = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        profileUrl: true,
+        createdAt: true,
+        handle: true,
+        premiumTokens: true,
+        tokens: true,
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    let handle;
+    if (user.handle) {
+      handle = await prisma.handle.findUnique({
+        where: {
+          id: user.handle,
+        },
+        select: {
+          handle: true,
+        },
+      });
+      handle = handle?.handle;
+    }
+
+    const creations = await prisma.creation.findMany({
+      where: { userId },
+      select: {
+        id: true,
+        displayImage: true,
+        createdAt: true,
+        image: {
+          select: {
+            prompt: true,
+            isPremium: true,
+          },
+        },
+        createdBy: {
+          select: {
+            profileUrl: true,
+            id: true,
+            name: true,
+          },
+        },
+      },
+
+      orderBy: {
+        createdAt: "desc",
+      },
+    });
+
+    res.status(200).json({
+      user: {
+        ...user,
+        handle,
+      },
+      creations,
+    });
+  } catch (error) {
+    console.error("Get profile error:", error);
+    res.status(500).json({ message: "Error fetching profile" });
+  }
+};
+
+const updateProfile = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { name, profileUrl, image, handle } = req.body;
+
+    if (!name && !profileUrl && !image && !handle) {
+      return res.status(400).json({
+        message:
+          "At least one field (name, profileUrl, or image) must be provided for update",
+        error: true,
+      });
+    }
+
+    const updateData = {};
+    if (name) updateData.name = name;
+
+    if (handle) {
+      console.log(handle);
+      const existingHandle = await prisma.handle.findFirst({
+        where: {
+          id: handle,
+          userId: userId,
+        },
+      });
+      if (existingHandle) {
+      } else {
+        return res.status(401).json({ message: "Auth issues" });
+      }
+
+      updateData.handle = handle;
+    }
+    if (image) {
+      const bucketName = process.env.GCP_BUCKET_NAME;
+      const fileName = `profile-images/${userId}-${Date.now()}-${Math.random()
+        .toString(36)
+        .substring(7)}.png`;
+
+      const base64Data = image.replace(/^data:image\/\w+;base64,/, "");
+      const imageBuffer = Buffer.from(base64Data, "base64");
+
+      await storage
+        .bucket(bucketName)
+        .file(fileName)
+        .save(imageBuffer, {
+          metadata: {
+            contentType: "image/png",
+          },
+        });
+
+      const [url] = await storage
+        .bucket(bucketName)
+        .file(fileName)
+        .getSignedUrl({
+          action: "read",
+          expires: "03-01-2500",
+        });
+
+      updateData.profileUrl = url;
+    } else if (profileUrl) {
+      updateData.profileUrl = profileUrl;
+    }
+
+    const updatedUser = await prisma.user.update({
+      where: { id: userId },
+      data: updateData,
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        profileUrl: true,
+        createdAt: true,
+        handles: {
+          select: {
+            handle: true,
+          },
+        },
+      },
+    });
+
+    res.status(200).json({
+      message: "Profile updated successfully",
+      user: updatedUser,
+    });
+  } catch (error) {
+    console.error("Update profile error:", error);
+    res.status(500).json({
+      message: "Error updating profile",
+      error: true,
+    });
+  }
+};
+
+const getUserProfile = async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        profileUrl: true,
+        createdAt: true,
+        handle: true,
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    let handle;
+    if (user.handle) {
+      handle = await prisma.handle.findUnique({
+        where: {
+          id: user.handle,
+        },
+        select: {
+          handle: true,
+        },
+      });
+      handle = handle?.handle;
+    }
+
+    const creations = await prisma.creation.findMany({
+      where: { userId, displayImage: { not: null } },
+      select: {
+        id: true,
+        displayImage: true,
+        createdAt: true,
+        _count: {
+          select: {
+            likes: true,
+            comments: true,
+          },
+        },
+        image: {
+          select: {
+            prompt: true,
+            isPremium: true,
+          },
+        },
+        createdBy: {
+          select: {
+            profileUrl: true,
+            id: true,
+            name: true,
+          },
+        },
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+    });
+
+    res.status(200).json({
+      user: {
+        ...user,
+        handle,
+      },
+      creations,
+    });
+  } catch (error) {
+    console.error("Get user profile error:", error);
+    res.status(500).json({ message: "Error fetching user profile" });
+  }
+};
+
 module.exports = {
   signup,
   login,
@@ -305,4 +540,7 @@ module.exports = {
   requestPasswordReset,
   resetPassword,
   showResetPasswordForm,
+  getProfile,
+  updateProfile,
+  getUserProfile,
 };
