@@ -305,6 +305,26 @@ const getProfile = async (req, res) => {
         handle: true,
         premiumTokens: true,
         tokens: true,
+        creations: {
+          where: {
+            displayImage: {
+              not: null,
+            },
+          },
+          select: {
+            displayImage: true,
+            createdAt: true,
+            image: {
+              select: {
+                prompt: true,
+                isPremium: true,
+              },
+            },
+          },
+          orderBy: {
+            createdAt: "desc",
+          },
+        },
       },
     });
 
@@ -325,38 +345,13 @@ const getProfile = async (req, res) => {
       handle = handle?.handle;
     }
 
-    const creations = await prisma.creation.findMany({
-      where: { userId },
-      select: {
-        id: true,
-        displayImage: true,
-        createdAt: true,
-        image: {
-          select: {
-            prompt: true,
-            isPremium: true,
-          },
-        },
-        createdBy: {
-          select: {
-            profileUrl: true,
-            id: true,
-            name: true,
-          },
-        },
-      },
-
-      orderBy: {
-        createdAt: "desc",
-      },
-    });
+   
 
     res.status(200).json({
       user: {
         ...user,
         handle,
       },
-      creations,
     });
   } catch (error) {
     console.error("Get profile error:", error);

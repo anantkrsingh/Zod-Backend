@@ -1,5 +1,6 @@
 const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
+const { createNotification } = require("./notification");
 
 const getComments = async (req, res) => {
   try {
@@ -9,9 +10,7 @@ const getComments = async (req, res) => {
     const skip = (page - 1) * limit;
 
     const comments = await prisma.comment.findMany({
-      where: {
-        creationId: parseInt(creationId),
-      },
+      where: { creationId: creationId },
       skip,
       take: limit,
       orderBy: {
@@ -27,10 +26,9 @@ const getComments = async (req, res) => {
         },
       },
     });
-
     const totalComments = await prisma.comment.count({
       where: {
-        creationId: parseInt(creationId),
+        creationId: creationId,
       },
     });
 
@@ -51,12 +49,11 @@ const getComments = async (req, res) => {
 const createComment = async (req, res) => {
   try {
     const { creationId } = req.params;
-    const { content } = req.body;
+    const { text } = req.body;
     const { userId } = req.user;
 
-    // Check if creation exists
     const creation = await prisma.creation.findUnique({
-      where: { id: parseInt(creationId) },
+      where: { id: creationId },
     });
 
     if (!creation) {
@@ -67,9 +64,9 @@ const createComment = async (req, res) => {
 
     const comment = await prisma.comment.create({
       data: {
-        content,
-        userId,
-        creationId: parseInt(creationId),
+        comment: text,
+        userId: userId,
+        creationId: creationId,
       },
       include: {
         user: {
@@ -81,6 +78,13 @@ const createComment = async (req, res) => {
         },
       },
     });
+
+    await createNotification(
+      creation.userId,
+      `${comment.user.name} Has Commented On Your Creation`,
+      text,
+      "comment"
+    );
 
     return res.status(201).json({
       message: "Comment created successfully",
@@ -97,4 +101,4 @@ const createComment = async (req, res) => {
 module.exports = {
   getComments,
   createComment,
-}; 
+};

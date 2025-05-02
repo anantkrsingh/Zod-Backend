@@ -14,8 +14,7 @@ router.get("/get-creations", verifyToken, getAllCreations);
 router.post("/:creationId/like", verifyToken, likeCreation);
 router.get("/search", verifyToken, search);
 
-// Comment routes
-router.get("/:creationId/comments", verifyToken, getComments);
+router.get("/:creationId/comments", simulate,verifyToken, getComments);
 router.post("/:creationId/comments", verifyToken, createComment);
 
 module.exports = router;
