@@ -72,6 +72,48 @@ const newCreation = async (req, res) => {
 
 const getAllCreations = async (req, res) => {
   try {
+
+    const creations = await prisma.creation.findMany(
+      {
+        include: {
+          image: {
+            select: {
+              prompt: true,
+            }
+          },
+          createdBy:
+          {
+            select: {
+              id: true,
+              name: true,
+              profileUrl: true,
+            },
+          },
+          _count: {
+            select: {
+              likes: true,
+              comments: true
+            }
+          }
+        }
+      }
+    )
+
+    return res.status(200).json({
+      creations,
+    });
+  } catch (error) {
+    console.log(error);
+    return res.status(500).json({
+      message: "Internal server error",
+    });
+  }
+};
+
+
+
+const getCreations = async (req, res) => {
+  try {
     const page = parseInt(req.query.page) || 1;
     const limit = 10;
     const skip = (page - 1) * limit;
@@ -140,6 +182,43 @@ const getAllCreations = async (req, res) => {
   }
 };
 
+const getCreation = async (req, res) => {
+  try {
+    const { creationId } = req.params;
+    const creation = await prisma.creation.findUnique({
+      where: { id: creationId },
+      include: {
+        image: {
+          select: {
+            prompt: true,
+          }
+        },
+        createdBy: {
+          select: {
+            id: true,
+            name: true,
+            profileUrl: true,
+          },
+        },
+        _count: {
+          select: {
+            likes: true,
+            comments: true
+          }
+        }
+      },
+    });
+    console.log(creation)
+    return res.status(200).json({
+      creation,
+    });
+  } catch (error) {
+    console.log(error);
+    return res.status(500).json({
+      message: "Internal server error",
+    });
+  }
+}
 const getUserCreations = async (req, res) => {
   try {
     const { userId } = req.params;
@@ -313,4 +392,6 @@ module.exports = {
   getUserCreations,
   likeCreation,
   unlikeCreation,
+  getCreations,
+  getCreation
 };
