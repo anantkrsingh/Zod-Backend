@@ -5,12 +5,18 @@ import json
 import sys
 import os
 import tempfile
+from google.oauth2 import service_account
+
 
 def generate_image(prompt):
     temp_dir = tempfile.gettempdir()
     output_file = os.path.join(temp_dir, f"image_output_{os.getpid()}.json")
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    service_account_path = os.path.join(script_dir, "..", "service_account.json")
+
     try:
-        vertexai.init(project="etm-cloud", location="asia-south1")
+        credentials = service_account.Credentials.from_service_account_file(service_account_path)
+        vertexai.init(project="etm-cloud", location="asia-south1", credentials=credentials)
         model = ImageGenerationModel.from_pretrained("imagen-3.0-generate-002")
         response = model.generate_images(
             prompt=prompt,
