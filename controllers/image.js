@@ -61,10 +61,7 @@ const generateImage = async ({ prompt }) => {
       },
     });
 
-    const [url] = await storage.bucket(bucketName).file(fileName).getSignedUrl({
-      action: "read",
-      expires: "03-01-2500",
-    });
+    const url = `https://storage.googleapis.com/${bucketName}/${fileName}`;
 
     fs.unlinkSync(tempFilePath);
     if (outputFile) {
@@ -167,10 +164,7 @@ const generateThumbnail = async ({
       metadata: { contentType: "image/png" },
     });
 
-    const [url] = await storage.bucket(bucketName).file(filePath).getSignedUrl({
-      action: "read",
-      expires: "03-01-2500",
-    });
+    const url = `https://storage.googleapis.com/${bucketName}/${filePath}`;
 
     fs.unlinkSync(tempFilePath);
     return url;

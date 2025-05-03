@@ -7,11 +7,14 @@ const { verifyToken } = require("../middlewares/auth");
 const { likeCreation } = require("../controllers/likes");
 const { search } = require("../controllers/search");
 const { getComments, createComment } = require("../controllers/comment");
+const { reportCreation } = require("../controllers/report");
 
 router.post("/new-creation", verifyToken, newCreation);
 router.get("/all-creations", getAllCreations);
 router.get("/get/:creationId", getCreation)
 router.get("/get-creations", verifyToken, getCreations);
+
+router.post("/report", verifyToken, reportCreation);
 
 router.post("/:creationId/like", verifyToken, likeCreation);
 router.get("/search", verifyToken, search);
