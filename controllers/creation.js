@@ -172,7 +172,6 @@ const getCreations = async (req, res) => {
     }));
 
     const totalCreations = await prisma.creation.count();
-
     return res.status(200).json({
       creations: transformedCreations,
       currentPage: page,
