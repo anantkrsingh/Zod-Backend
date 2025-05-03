@@ -98,7 +98,7 @@ const signup = async (req, res) => {
 const login = async (req, res) => {
   try {
     const { email, password } = req.body;
-    const user = await prisma.users.findUnique({
+    const user = await prisma.user.findUnique({
       where: { email },
     });
 
@@ -347,7 +347,7 @@ const getProfile = async (req, res) => {
       handle = handle?.handle;
     }
 
-   
+
 
     res.status(200).json({
       user: {

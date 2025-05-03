@@ -75,6 +75,11 @@ const getAllCreations = async (req, res) => {
 
     const creations = await prisma.creation.findMany(
       {
+        where: {
+          displayImage: {
+            not: null
+          }
+        },
         include: {
           image: {
             select: {
@@ -200,15 +205,17 @@ const getCreation = async (req, res) => {
             profileUrl: true,
           },
         },
+
+
         _count: {
           select: {
             likes: true,
             comments: true
           }
-        }
+        },
+
       },
     });
-    console.log(creation)
     return res.status(200).json({
       creation,
     });
