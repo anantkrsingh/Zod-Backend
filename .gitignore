@@ -8,3 +8,4 @@ experimental/**/*.db
 prisma/**/migrations/
 .vscode/
 service_account.json
+google_services.json
